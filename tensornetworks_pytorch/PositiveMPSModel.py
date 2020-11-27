@@ -45,7 +45,7 @@ class PositiveMPS(TN):
     def __init__(self, D=4, learning_rate=0.1, batch_size=10,
                  n_iter=100, random_state=None, verbose=False):
         super().__init__()
-        
+   
     def _probability(self, x):
         """Unnormalized probability of one configuration P(x)
         Parameters
@@ -66,7 +66,7 @@ class PositiveMPS(TN):
 
         ###CONTRACTING RECURRENT NETWORK USING EINSUM####
         #take one core tensor of shape (d,D,D) and copy it n_features time, where n_features is the length of the sequence
-        weights_tensor = self.core[None].repeat(n_features, 0)
+        weights_tensor = self.core[None].repeat_interleave(n_features, dim=0)
         #contract the intiial bond dimension using left boundary vector and square the weights in order to ensure positive parameters
         #we treat the paramters of the different models (PMPS, BR, BC) uniformly and restrict the parameters in this case to be positive
         contracting_tensor = torch.square(torch.einsum('i, ij -> j', self.left_boundary, weights_tensor[0, x[0], :, :]))
@@ -87,7 +87,7 @@ class PositiveMPS(TN):
         """
 
         ###CONTRACTING RECURRENT NETWORK USING EINSUM####
-        weights_tensor = self.core[None].repeat(n_features, 0)
+        weights_tensor = self.core[None].repeat_interleave(n_features, dim=0)
         #same process as probability but must sum over physical bonds for norm
         #we have two copies of the same network stuck together, attached at the physical index
         #first tensor of network, shape(D)

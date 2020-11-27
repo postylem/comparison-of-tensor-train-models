@@ -86,12 +86,16 @@ class RealBorn(TN):
         ###CONTRACTING RECURRENT NETWORK WITH EINSUM###
         weights_tensor = self.core[None].repeat(n_features, 0)
         #perform left boundary contraction
-        contracting_tensor = torch.einsum('ij, ik -> jk', torch.einsum('j, ijk -> ik', self.left_boundary, weights_tensor[0, :, :, :]), 
-                                                        torch.einsum('j, ijk -> ik', self.left_boundary, weights_tensor[0, :, :, :]))
+        contracting_tensor = torch.einsum(
+            'ij, ik -> jk', 
+            torch.einsum('j, ijk -> ik', self.left_boundary, weights_tensor[0, :, :, :]),
+            torch.einsum('j, ijk -> ik', self.left_boundary, weights_tensor[0, :, :, :]))
         #contract the network
         for i in xrange(1, n_features):
-            contracting_tensor = torch.einsum('ij, ijkl -> kl', contracting_tensor, 
-                                                                np.einsum('ijk, ilm -> jlkm', weights_tensor[i, :, :, :], weights_tensor[i, :, :, :]))
+            contracting_tensor = torch.einsum(
+                'ij, ijkl -> kl',
+                contracting_tensor, 
+                np.einsum('ijk, ilm -> jlkm', weights_tensor[i, :, :, :], weights_tensor[i, :, :, :]))
         #contract the final bond dimension with right boundary vector
         norm = torch.einsum('ij, i, j ->', contracting_tensor, self.right_boundary, self.right_boundary)
 

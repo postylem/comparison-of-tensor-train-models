@@ -58,6 +58,7 @@ class TN(torch.nn.Module):
         self.n_iter = n_iter
         self.random_state = random_state
         self.verbose = verbose
+        # the following will be backpropped over
         self.core = torch.Tensor([d, D, D]) #None if we want to initialize this once we've seen the dimensionality of the data
         self.left_boundary = torch.Tensor([D])
         self.right_boundary = torch.Tensor([D])
