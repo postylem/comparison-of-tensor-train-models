@@ -1,3 +1,26 @@
+# Comparing MPS and HMM
+
+Js Hoov Palucc
+
+`/tensornetworks_pytorch` contains a bottom-up Pytorch reimplementation of tensor train models from Glasser et al, to make use of autodifferentiation.
+
+## Requirements
+- Python v3.8 (3.7 should work too)
+- Pytorch v1.8 (nightly build), to have autodifferentiation work with complex numbers.
+
+Set a conda environment say, `torch_nightly`, set up with:
+```
+conda create --name torch_nightly python=3.8
+conda install pytorch torchvision torchaudio -c pytorch-nightly
+```
+
+
+
+
+Original Readme:
+--------
+
+
 # Expressive power of tensor-network factorizations for probabilistic modeling
 This is the code accompanying the paper "Expressive power of tensor-network factorizations for probabilistic modeling" (Advances in Neural Information Processing Systems 32, proceedings of the NeurIPS 2019 Conference) which allows for reproduction of its numerical results. If you use this code or these results please cite [1].
 

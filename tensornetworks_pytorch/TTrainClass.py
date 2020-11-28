@@ -3,22 +3,22 @@ import torch.nn as nn
 import torch.optim as optim
 
 
-class TN(nn.Module):
-    def __init__(self, d, D, verbose=False):
+class TTrain(nn.Module):
+    def __init__(self, d, D, dtype, verbose=False):
         super().__init__()
         self.D = D
         self.d = d
         self.verbose = verbose
         # the following are set to nn.Parameters thus are backpropped over
-        self.core = nn.Parameter(torch.rand(d, D, D))
-        self.left_boundary = nn.Parameter(torch.rand(D))
-        self.right_boundary = nn.Parameter(torch.rand(D))
+        self.core = nn.Parameter(torch.rand(d, D, D, dtype=dtype))
+        self.left_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
+        self.right_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
 
     def _probability(self, x):
         """Unnormalized probability of one configuration P(x)
         Parameters
         ----------
-        x : numpy array, shape (n_features,)
+        x : numpy array, shape (seqlen,)
             One configuration
         Returns
         -------
@@ -30,11 +30,11 @@ class TN(nn.Module):
         """Contract network at particular values in the physical dimension,
         for computing probability of x.
         """
-        # repeat the core n_features times
-        w = self.core[None].repeat_interleave(self.n_features, dim=0)
+        # repeat the core seqlen times
+        w = self.core[None].repeat(self.seqlen, 1, 1, 1)
         # contract the network, from the left boundary through to the last core
         contracting_tensor = self.left_boundary
-        for i in range(self.n_features):
+        for i in range(self.seqlen):
             contracting_tensor = torch.einsum(
                 'i, ij -> j',
                 contracting_tensor,
@@ -42,14 +42,16 @@ class TN(nn.Module):
         # contract the final bond dimension
         output = torch.einsum(
             'i, i ->', contracting_tensor, self.right_boundary)
+        if self.verbose:
+            print("contract_at", output)
         return output
 
     def _contract_all(self):
         """Contract network with a copy of itself across physical index,
         for computing norm.
         """
-        # repeat the core n_features times
-        w = self.core[None].repeat(n_features, 0)
+        # repeat the core seqlen times
+        w = self.core[None].repeat(self.seqlen, 1, 1, 1)
 
         # first, left boundary contraction
         # (note: if real-valued conj will have no effect)
@@ -61,11 +63,11 @@ class TN(nn.Module):
                 'j, ijk -> ik', self.left_boundary, w[0, :, :, :].conj())
         )
         # contract the network
-        for i in range(1, n_features):
+        for i in range(1, self.seqlen):
             contracting_tensor = torch.einsum(
                 'ij, ijkl -> kl',
                 contracting_tensor,
-                np.einsum(
+                torch.einsum(
                     'ijk, ilm -> jlkm',
                     w[i, :, :, :],
                     w[i, :, :, :].conj()))
@@ -73,22 +75,16 @@ class TN(nn.Module):
         output = torch.einsum(
             'ij, i, j ->',
             contracting_tensor, self.right_boundary, self.right_boundary)
-
+        if self.verbose:
+            print("contract_all", output)
         return output
 
-    def _computenorm(self):
-        """Compute norm of probability distribution
-        Returns
-        -------
-        norm : float
-        """
-        pass
 
     def fit(self, X, d):
         """Fit the network to the d-categorical data X
         Parameters
         ----------
-        X : tensor shape (n_samples, n_features)
+        X : tensor shape (n_datapoints, seqlen)
         d : physical dimension (range of x_i)
 
         Returns
@@ -97,11 +93,11 @@ class TN(nn.Module):
             The fitted model.
         """
 
-        self.n_samples = X.shape[0]
-        self.n_features = X.shape[1]
+        self.n_datapoints = X.shape[0]
+        self.seqlen = X.shape[1]
         self.d = d
 
-        self.norm = self._computenorm()
+        self.norm = self._contract_all()
 
         # TODO: training here ...
         # self.training()
