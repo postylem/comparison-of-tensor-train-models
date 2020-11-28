@@ -1,5 +1,6 @@
 from .TNClass import TN
 import torch
+import torch.nn as nn
 
 
 class PositiveMPS(TN):
@@ -7,7 +8,8 @@ class PositiveMPS(TN):
         super().__init__(d, D, verbose=verbose)
 
     def _probability(self, x):
-        self.core = self.core.square()  # square to ensure positive parameters
+        # square core to ensure positive parameters
+        self.core = nn.Parameter(self.core.square())
         probability = self._contract_at(x)
         return probability
 
