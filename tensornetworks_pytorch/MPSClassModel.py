@@ -411,4 +411,3 @@ class TN(torch.nn.Module):
         end = time.time()
         print("KL divergence = %.6f, time = %.2fs" % (self.distance(X),end - begin))
         return self
-
