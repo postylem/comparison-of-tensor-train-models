@@ -26,21 +26,54 @@ class TN(nn.Module):
         """
         pass
 
-    def _contract_at(self, x, core):
-        """Contract network at particular values in the physical dimension
+    def _contract_at(self, x):
+        """Contract network at particular values in the physical dimension,
+        for computing probability of x.
         """
         # repeat the core n_features times
-        weights_tensor = core[None].repeat_interleave(self.n_features, dim=0)
+        w = self.core[None].repeat_interleave(self.n_features, dim=0)
         # contract the network, from the left boundary through to the last core
         contracting_tensor = self.left_boundary
         for i in range(self.n_features):
             contracting_tensor = torch.einsum(
                 'i, ij -> j',
                 contracting_tensor,
-                weights_tensor[i, x[i], :, :])
+                w[i, x[i], :, :])
         # contract the final bond dimension
         output = torch.einsum(
             'i, i ->', contracting_tensor, self.right_boundary)
+        return output
+
+    def _contract_all(self):
+        """Contract network with a copy of itself across physical index,
+        for computing norm.
+        """
+        # repeat the core n_features times
+        w = self.core[None].repeat(n_features, 0)
+
+        # first, left boundary contraction
+        # (note: if real-valued conj will have no effect)
+        contracting_tensor = torch.einsum(
+            'ij, ik -> jk',
+            torch.einsum(
+                'j, ijk -> ik', self.left_boundary, w[0, :, :, :]),
+            torch.einsum(
+                'j, ijk -> ik', self.left_boundary, w[0, :, :, :].conj())
+        )
+        # contract the network
+        for i in range(1, n_features):
+            contracting_tensor = torch.einsum(
+                'ij, ijkl -> kl',
+                contracting_tensor,
+                np.einsum(
+                    'ijk, ilm -> jlkm',
+                    w[i, :, :, :],
+                    w[i, :, :, :].conj()))
+        # contract the final bond dimension with right boundary vector
+        output = torch.einsum(
+            'ij, i, j ->',
+            contracting_tensor, self.right_boundary, self.right_boundary)
+
         return output
 
     def _computenorm(self):

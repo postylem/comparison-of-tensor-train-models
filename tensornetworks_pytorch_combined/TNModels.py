@@ -7,8 +7,8 @@ class PositiveMPS(TN):
         super().__init__(d, D, verbose=verbose)
 
     def _probability(self, x):
-        core = self.core.square()  # square to ensure positive parameters
-        probability = self._contract_at(x, core)
+        self.core = self.core.square()  # square to ensure positive parameters
+        probability = self._contract_at(x)
         return probability
 
     def _computenorm(self):
@@ -49,8 +49,7 @@ class RealBorn(TN):
         super().__init__(d, D, verbose=verbose)
 
     def _probability(self, x):
-        core = self.core
-        output = self._contract_at(x, core)
+        output = self._contract_at(x)
         probability = output.square()
         return probability
 
@@ -61,25 +60,17 @@ class RealBorn(TN):
         norm : float
         """
 
-        weights_tensor = self.core[None].repeat(n_features, 0)
-        #perform left boundary contraction
-        contracting_tensor = torch.einsum(
-            'ij, ik -> jk', 
-            torch.einsum('j, ijk -> ik', self.left_boundary, weights_tensor[0, :, :, :]),
-            torch.einsum('j, ijk -> ik', self.left_boundary, weights_tensor[0, :, :, :]))
-        #contract the network
-        for i in range(1, n_features):
-            contracting_tensor = torch.einsum(
-                'ij, ijkl -> kl',
-                contracting_tensor, 
-                np.einsum(
-                    'ijk, ilm -> jlkm',
-                    weights_tensor[i, :, :, :],
-                    weights_tensor[i, :, :, :]))
-        #contract the final bond dimension with right boundary vector
-        norm = torch.einsum(
-            'ij, i, j ->', 
-            contracting_tensor, self.right_boundary, self.right_boundary)
+        # n_features : the number of tensor cores, i.e. length of input P(X_1, ..., X_N) would have n_features = N
+        # d : physical dimension, i.e. the possible values each x_i can take
+        # D : bond dimension
+
+        # the way this is set up now, we are taking one data point at a time, i.e. one configuration. 
+        # We would need another loop if we wanted to the whole dataset as an argument: X would be an array of shape (n_samples, n_features)
+
+
+        # TODO: ensure core is real-valued, but other than that,
+        #       this should be the same operation as for the complex Born.
+        norm = self._contract_all()
 
         return norm
 
@@ -89,8 +80,7 @@ class ComplexBorn(TN):
         super().__init__(d, D, verbose=verbose)
 
     def _probability(self, x):
-        core = self.core
-        output = self._contract_at(x, core)
+        output = self._contract_at(x)
         probability = output.abs().square()
         return probability
 
@@ -104,20 +94,6 @@ class ComplexBorn(TN):
         ###CONTRACTING RECURRENT NETWORK WITH EINSUM###
         #this is also the same as the other cases but for one copy of the network, we take the complex conjugate
         #take one core tensor of shape (d,D,D) and copy it n_features time, where n_features is the length of the sequence
-        weights_tensor = self.core[None].repeat(n_features, 0)
-
-        #perform left boundary contraction to 
-        contracting_tensor = torch.einsum(
-            'ij, ik -> jk',
-            torch.einsum('j, ijk -> ik', self.left_boundary, weights_tensor[0, :, :, :]),
-            torch.einsum('j, ijk -> ik', self.left_boundary, torch.conj(weights_tensor[0, :, :, :])))
-        #contract the network
-        for i in range(1, n_features):
-            contracting_tensor = torch.einsum('ij, ijkl -> kl',
-                contracting_tensor,
-                np.einsum('ijk, ilm -> jlkm', weights_tensor[i, :, :, :], torch.conj(weights_tensor[i, :, :, :])))
-        norm = torch.einsum(
-            'ij, i, j ->', 
-            contracting_tensor, self.right_boundary, self.right_boundary)
+        norm = self._contract_all()
 
         return norm
