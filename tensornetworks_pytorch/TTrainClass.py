@@ -4,6 +4,14 @@ import torch.optim as optim
 
 
 class TTrain(nn.Module):
+    """Abstract class for Tensor Train models.  Use instantiating class.
+
+    Parameters:
+        D (int): bond dimension
+        d (int): physical dimension (number of categories in data)
+        dtype ([tensor.dtype]): 
+            tensor.float for real, or tensor.cfloat for complex
+    """
     def __init__(self, d, D, dtype, verbose=False):
         super().__init__()
         self.D = D
@@ -13,18 +21,6 @@ class TTrain(nn.Module):
         self.core = nn.Parameter(torch.rand(d, D, D, dtype=dtype))
         self.left_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
         self.right_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
-
-    def _probability(self, x):
-        """Unnormalized probability of one configuration P(x)
-        Parameters
-        ----------
-        x : numpy array, shape (seqlen,)
-            One configuration
-        Returns
-        -------
-        probability : float
-        """
-        pass
 
     def _contract_at(self, x):
         """Contract network at particular values in the physical dimension,
@@ -42,8 +38,8 @@ class TTrain(nn.Module):
         # contract the final bond dimension
         output = torch.einsum(
             'i, i ->', contracting_tensor, self.right_boundary)
-        if self.verbose:
-            print("contract_at", output)
+        # if self.verbose:
+        #     print("contract_at", output)
         return output
 
     def _contract_all(self):
@@ -75,10 +71,23 @@ class TTrain(nn.Module):
         output = torch.einsum(
             'ij, i, j ->',
             contracting_tensor, self.right_boundary, self.right_boundary)
-        if self.verbose:
-            print("contract_all", output)
+        # if self.verbose:
+        #     print("contract_all", output)
         return output
 
+    def _logprob(self, x):
+        """Compute log probability of one configuration P(x)
+
+        Args:
+            x (np.ndarray): shape (seqlen,)
+
+        Returns:
+            logprob (torch.Tensor): size [1]
+        """
+        pass
+
+    def forward(self, x):
+        return self._logprob(x)
 
     def fit(self, X, d):
         """Fit the network to the d-categorical data X
@@ -97,30 +106,27 @@ class TTrain(nn.Module):
         self.seqlen = X.shape[1]
         self.d = d
 
-        self.norm = self._contract_all()
+        self.normalization = self._contract_all()
 
         # TODO: training here ...
-        # self.training()
+        # self.train()
 
         # just for now, calculate the probability of the first datapoint
-        self.probability0 = self._probability(X[0])
+        self.probability0 = self(X[0])
 
         return self
 
-    def training():
-        loss_function = nn.NLLLoss()
+
+    def train(self, data):
         optimizer = optim.SGD(self.parameters(), lr=0.1)
 
-        for epoch in range(100):
-            for x, target in data:
+        for _ in range(100):
+            for x in data:
                 # clear out gradients
-                model.zero_grad()
+                self.zero_grad()
 
-                # TODO: run forward pass.
-                # log_probs = logprobs(x)
-
-                # compute the loss, gradients
-                loss = loss_function(log_probs, target)
+                # run forward pass.
+                loss =  - self(x)
                 loss.backward()
                 # update the parameters
                 optimizer.step()
