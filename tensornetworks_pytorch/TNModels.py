@@ -22,19 +22,98 @@ class PosMPS(TTrain):
         Returns:
             logprob (torch.Tensor): size []
         """
-        # abs core to ensure positive parameters
-        self.core = nn.Parameter(self.core.abs())
-        self.left_boundary = nn.Parameter(self.left_boundary.abs())
-        self.right_boundary = nn.Parameter(self.right_boundary.abs())
 
         unnorm_prob = self._contract_at(x)
         normalization = self._contract_all()
         logprob = unnorm_prob.log() - normalization.log()
-        if self.verbose:
-            # print("unnorm_prob", unnorm_prob)
-            # print("normalization", normalization)
-            print("logprob", logprob)
         return logprob
+
+    def _contract_at(self, x):
+        """Contract network at particular values in the physical dimension,
+        for computing probability of x.
+        """
+        # repeat the core seqlen times
+        w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        w2 = w.square()
+        left_boundary2 = self.left_boundary.square()
+        right_boundary2 = self.right_boundary.square()
+        # contract the network, from the left boundary through to the last core
+        contracting_tensor = left_boundary2
+        for i in range(self.seqlen):
+            contracting_tensor = torch.einsum(
+                'i, ij -> j',
+                contracting_tensor,
+                w2[i, x[i], :, :])
+            if contracting_tensor.min() < 0:
+                print("contraction < 0")
+                print(w.min())
+        # contract the final bond dimension
+        output = torch.einsum(
+            'i, i ->', contracting_tensor, right_boundary2)
+        # if self.verbose:
+        #     print("contract_at", output)
+        if output < 0:
+            print("output of contract_at < 0")
+        return output
+
+    def _contract_all(self):
+        """Contract network with a copy of itself across physical index,
+        for computing norm.
+        """
+        # repeat the core seqlen times
+        w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        w2 = w.square()
+        left_boundary2 = self.left_boundary.square()
+        right_boundary2 = self.right_boundary.square()
+        # first, left boundary contraction
+        # (note: if real-valued conj will have no effect)
+        contracting_tensor = torch.einsum(
+            'j, ijk -> k', left_boundary2, w2[0, :, :, :])
+        # contract the network
+        for i in range(1, self.seqlen):
+            contracting_tensor = torch.einsum(
+                'j, ijk -> k',
+                contracting_tensor,
+                w2[i, :, :, :])
+        # contract the final bond dimension with right boundary vector
+        output = torch.dot(contracting_tensor, right_boundary2)
+        # if self.verbose:
+        #     print("contract_all", output)
+        return output
+
+    # def _contract_at_temp(self, x):
+    #     """Contract network at particular values in the physical dimension,
+    #     for computing probability of x.
+    #     """
+    #     # repeat the core seqlen times
+    #     w2 = self.core[None].repeat(self.seqlen, 1, 1, 1).square()
+    #     left_boundary2 = self.left_boundary.square()
+    #     right_boundary2 = self.right_boundary.square()
+    #     contracting_tensor = left_boundary2
+    #     for i in range(self.seqlen):
+    #         contracting_tensor = torch.einsum(
+    #             'i, ij -> j',
+    #             contracting_tensor,
+    #             w2[i, x[i], :, :]) 
+    #     output = torch.dot(contracting_tensor, right_boundary2)
+    #     return output
+
+    # def _contract_all_temp(self):
+    #     """Contract network with a copy of itself across physical index,
+    #     for computing norm.
+    #     """
+    #     w2 = self.core[None].repeat(self.seqlen, 1, 1, 1).square()
+    #     left_boundary2 = self.left_boundary.square()
+    #     right_boundary2 = self.right_boundary.square()
+    #     contracting_tensor = torch.einsum('j, ijk -> ik', left_boundary2, w2[0,:,:,:])
+    #     contracting_tensor = contracting_tensor.sum(axis=0)
+    #     for i in range(1, self.seqlen):
+    #         contracting_tensor = torch.einsum(
+    #             'i, ij -> j', 
+    #             contracting_tensor, 
+    #             torch.sum(w2[i,:,:,:], axis=0))  
+    #     output = torch.dot(contracting_tensor, right_boundary2)
+    #     return output
 
 
 class Born(TTrain):
@@ -62,8 +141,5 @@ class Born(TTrain):
         unnorm_prob = output.abs().square()
         normalization = self._contract_all().abs()
         logprob = unnorm_prob.log() - normalization.log()
-        if self.verbose:
-            # print("unnorm_prob", unnorm_prob)
-            # print("normalization", normalization)
-            print("logprob", logprob)
+        # print("unnorm_prob, normalization\n",unnorm_prob,normalization)
         return logprob

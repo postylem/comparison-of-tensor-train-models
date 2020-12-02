@@ -106,7 +106,7 @@ class TTrain(nn.Module):
         self.seqlen = X.shape[1]
         self.d = d
 
-        self.normalization = self._contract_all()
+        # self.normalization = self._contract_all()
 
         # TODO: training here ...
         # self.train()
