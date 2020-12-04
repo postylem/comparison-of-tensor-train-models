@@ -70,7 +70,9 @@ class TTrain(nn.Module):
         # contract the final bond dimension with right boundary vector
         output = torch.einsum(
             'ij, i, j ->',
-            contracting_tensor, self.right_boundary, self.right_boundary)
+            contracting_tensor,
+            self.right_boundary,
+            self.right_boundary.conj())
         # if self.verbose:
         #     print("contract_all", output)
         return output
