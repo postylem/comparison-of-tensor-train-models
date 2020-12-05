@@ -132,8 +132,11 @@ class Born(TTrain):
             tensor.float for real, or tensor.cfloat for complex
     """
 
-    def __init__(self, dataset, d, D, dtype, homogeneous=True, verbose=False):
+    def __init__(
+            self, dataset, d, D, dtype, 
+            homogeneous=True, log_trick=True, verbose=False):
         super().__init__(dataset, d, D, dtype, homogeneous, verbose=verbose)
+        self.log_trick = log_trick
         self.name = "Born model " + repr(dtype) 
 
     def _logprob(self, x):
@@ -145,11 +148,14 @@ class Born(TTrain):
         Returns:
             logprob (torch.Tensor): size []
         """
-        output = self._contract_at(x)
-        unnorm_prob = output.abs().square()
-        normalization = self._contract_all().abs()
-        logprob = unnorm_prob.log() - normalization.log()
-        # print(
-        #     "unnorm_prob, normalization\n",
-        #     unnorm_prob.item(),normalization.item())
+        if self.log_trick:
+            unnorm_logprob = self._log_contract_at(x)
+            log_normalization = self._log_contract_all()
+            logprob = unnorm_logprob - log_normalization
+            # print(output, unnorm_prob, normalization, logprob)
+        else:
+            output = self._contract_at(x)
+            unnorm_prob = output.abs().square()
+            normalization = self._contract_all().abs()
+            logprob = unnorm_prob.log() - normalization.log()
         return logprob

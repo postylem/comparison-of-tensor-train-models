@@ -20,6 +20,8 @@ class TTrain(nn.Module):
         self.homogeneous = homogeneous
         self.n_datapoints = dataset.shape[0]
         self.seqlen = dataset.shape[1]
+        self.vec_norm = self.ournorm #
+        self.mat_norm = self.ournorm # 
 
         # the following are set to nn.Parameters thus are backpropped over
         if homogeneous:
@@ -30,6 +32,41 @@ class TTrain(nn.Module):
         self.left_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
         self.right_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
 
+    def ournorm(self, mat):
+        return torch.max(torch.sum(abs(mat), dim=-1))
+
+    def _log_contract_at(self, x):
+        """Contract network at particular values in the physical dimension,
+        for computing probability of x.
+        Uses log norm stability trick.
+        RETURNS A LOG PROB.
+        """
+        if self.homogeneous:
+            # repeat the core seqlen times
+            w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        else:
+            w = self.core
+        # contract the network, from the left boundary through to the last core
+        Z = self.vec_norm(self.left_boundary)
+        contractor_unit = self.left_boundary / Z
+        accumulated_lognorm = Z.log()
+        for i in range(self.seqlen):
+            contractor_temp = torch.einsum(
+                'i, ij -> j',
+                contractor_unit,
+                w[i, x[i], :, :])
+            Z = self.vec_norm(contractor_temp)
+            contractor_unit = contractor_temp / Z
+            accumulated_lognorm += Z.log()
+        # contract the final bond dimension
+        output = torch.einsum(
+            'i, i ->', contractor_unit, self.right_boundary)
+        output = (accumulated_lognorm.exp()*output).abs().square()
+        logprob = output.log()
+        # if self.verbose:
+        #     print("contract_at", output)
+        return logprob
+        
     def _contract_at(self, x):
         """Contract network at particular values in the physical dimension,
         for computing probability of x.
@@ -52,6 +89,56 @@ class TTrain(nn.Module):
         # if self.verbose:
         #     print("contract_at", output)
         return output
+
+    def _log_contract_all(self):
+        """Contract network with a copy of itself across physical index,
+        for computing norm.
+        """
+
+        if self.homogeneous:
+            # repeat the core seqlen times
+            w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        else:
+            w = self.core
+
+        # first, left boundary contraction
+        # (note: if real-valued conj will have no effect)
+        Z = self.vec_norm(self.left_boundary)
+        contractor_unit = self.left_boundary / Z
+        accumulated_lognorm = Z.log()
+        contractor_temp = torch.einsum(
+            'ij, ik -> jk',
+            torch.einsum(
+                'j, ijk -> ik', contractor_unit, w[0, :, :, :]),
+            torch.einsum(
+                'j, ijk -> ik', contractor_unit, w[0, :, :, :].conj())
+        )
+        Z = self.mat_norm(contractor_temp)
+        contractor_unit = contractor_temp / Z
+        accumulated_lognorm += Z.log()
+        # contract the network
+        for i in range(1, self.seqlen):
+            contractor_temp = torch.einsum(
+                'ij, ijkl -> kl',
+                contractor_unit,
+                torch.einsum(
+                    'ijk, ilm -> jlkm',
+                    w[i, :, :, :],
+                    w[i, :, :, :].conj()))
+            Z = self.mat_norm(contractor_temp)
+            contractor_unit = contractor_temp / Z
+            accumulated_lognorm += Z.log()
+        # contract the final bond dimension with right boundary vector
+        output = torch.einsum(
+            'ij, i, j ->',
+            contractor_unit,
+            self.right_boundary,
+            self.right_boundary.conj())
+        lognorm = (accumulated_lognorm.exp()*output).abs().log()
+        # if self.verbose:
+        #     print("contract_all", output)
+        return lognorm
+        
 
     def _contract_all(self):
         """Contract network with a copy of itself across physical index,
