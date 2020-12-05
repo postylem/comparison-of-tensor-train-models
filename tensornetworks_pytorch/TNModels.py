@@ -9,8 +9,8 @@ class PosMPS(TTrain):
     Uses absolute value of real parameters.
     """
 
-    def __init__(self, d, D, verbose=False):
-        super().__init__(d, D, torch.float, verbose=verbose)
+    def __init__(self, dataset, d, D, homogeneous=True, verbose=False):
+        super().__init__(dataset, d, D, torch.float, homogeneous, verbose=verbose)
         self.name = "Positive MPS"
 
     def _logprob(self, x):
@@ -33,7 +33,11 @@ class PosMPS(TTrain):
         for computing probability of x.
         """
         # repeat the core seqlen times
-        w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        if self.homogeneous:
+            # repeat the core seqlen times
+            w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        else:
+            w = self.core
         w2 = w.square()
         left_boundary2 = self.left_boundary.square()
         right_boundary2 = self.right_boundary.square()
@@ -61,7 +65,11 @@ class PosMPS(TTrain):
         for computing norm.
         """
         # repeat the core seqlen times
-        w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        if self.homogeneous:
+            # repeat the core seqlen times
+            w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        else:
+            w = self.core
         w2 = w.square()
         left_boundary2 = self.left_boundary.square()
         right_boundary2 = self.right_boundary.square()
@@ -124,8 +132,8 @@ class Born(TTrain):
             tensor.float for real, or tensor.cfloat for complex
     """
 
-    def __init__(self, d, D, dtype, verbose=False):
-        super().__init__(d, D, dtype, verbose=verbose)
+    def __init__(self, dataset, d, D, dtype, homogeneous=True, verbose=False):
+        super().__init__(dataset, d, D, dtype, homogeneous, verbose=verbose)
         self.name = "Born model " + repr(dtype) 
 
     def _logprob(self, x):
@@ -141,5 +149,7 @@ class Born(TTrain):
         unnorm_prob = output.abs().square()
         normalization = self._contract_all().abs()
         logprob = unnorm_prob.log() - normalization.log()
-        # print("unnorm_prob, normalization\n",unnorm_prob,normalization)
+        # print(
+        #     "unnorm_prob, normalization\n",
+        #     unnorm_prob.item(),normalization.item())
         return logprob

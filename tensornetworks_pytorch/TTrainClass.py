@@ -12,13 +12,21 @@ class TTrain(nn.Module):
         dtype ([tensor.dtype]): 
             tensor.float for real, or tensor.cfloat for complex
     """
-    def __init__(self, d, D, dtype, verbose=False):
+    def __init__(self, dataset, d, D, dtype, homogeneous=True, verbose=False):
         super().__init__()
         self.D = D
         self.d = d
         self.verbose = verbose
+        self.homogeneous = homogeneous
+        self.n_datapoints = dataset.shape[0]
+        self.seqlen = dataset.shape[1]
+
         # the following are set to nn.Parameters thus are backpropped over
-        self.core = nn.Parameter(torch.rand(d, D, D, dtype=dtype))
+        if homogeneous:
+            self.core = nn.Parameter(torch.rand(d, D, D, dtype=dtype))
+        else:
+            print("nonhomogeneous init")
+            self.core = nn.Parameter(torch.rand(self.seqlen, d, D, D, dtype=dtype))
         self.left_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
         self.right_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
 
@@ -26,8 +34,11 @@ class TTrain(nn.Module):
         """Contract network at particular values in the physical dimension,
         for computing probability of x.
         """
-        # repeat the core seqlen times
-        w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        if self.homogeneous:
+            # repeat the core seqlen times
+            w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        else:
+            w = self.core
         # contract the network, from the left boundary through to the last core
         contracting_tensor = self.left_boundary
         for i in range(self.seqlen):
@@ -46,8 +57,12 @@ class TTrain(nn.Module):
         """Contract network with a copy of itself across physical index,
         for computing norm.
         """
-        # repeat the core seqlen times
-        w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+
+        if self.homogeneous:
+            # repeat the core seqlen times
+            w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        else:
+            w = self.core
 
         # first, left boundary contraction
         # (note: if real-valued conj will have no effect)
@@ -90,34 +105,6 @@ class TTrain(nn.Module):
 
     def forward(self, x):
         return self._logprob(x)
-
-    def fit(self, X, d):
-        """Fit the network to the d-categorical data X
-        Parameters
-        ----------
-        X : tensor shape (n_datapoints, seqlen)
-        d : physical dimension (range of x_i)
-
-        Returns
-        -------
-        self : TN
-            The fitted model.
-        """
-
-        self.n_datapoints = X.shape[0]
-        self.seqlen = X.shape[1]
-        self.d = d
-
-        # self.normalization = self._contract_all()
-
-        # TODO: training here ...
-        # self.train()
-
-        # just for now, calculate the probability of the first datapoint
-        self.probability0 = self(X[0])
-
-        return self
-
 
     def train(self, data):
         optimizer = optim.SGD(self.parameters(), lr=0.1)
