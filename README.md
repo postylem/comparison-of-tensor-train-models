@@ -11,6 +11,7 @@ Js Hoov Palucc - IFT6269 project group 22
 Set a conda environment say, `torch_nightly`, set up with:
 ```
 conda create --name torch_nightly python=3.8
+conda activate torch_nightly
 conda install pytorch torchvision torchaudio -c pytorch-nightly
 ```
 
