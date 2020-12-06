@@ -17,6 +17,7 @@ class PosMPS(TTrain):
         else:
             self.name += ", Non-homogeneous"
 
+
     def _logprob(self, x):
         """Compute log probability of one configuration P(x)
 
@@ -146,6 +147,8 @@ class Born(TTrain):
             self.name += ", Homogeneous"
         else:
             self.name += ", Non-homogeneous"
+        if log_stability:
+            self.name += " + log_stability"
 
     def _logprob(self, x):
         """Compute log probability of one configuration P(x)
