@@ -20,20 +20,26 @@ class TTrain(nn.Module):
         self.homogeneous = homogeneous
         self.n_datapoints = dataset.shape[0]
         self.seqlen = dataset.shape[1]
-        self.vec_norm = self.ournorm #
-        self.mat_norm = self.ournorm # 
 
         # the following are set to nn.Parameters thus are backpropped over
-        if homogeneous:
-            self.core = nn.Parameter(torch.rand(d, D, D, dtype=dtype))
-        else:
-            print("nonhomogeneous init")
-            self.core = nn.Parameter(torch.rand(self.seqlen, d, D, D, dtype=dtype))
-        self.left_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
-        self.right_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
+        if homogeneous: # initialize single core to be repeated
+            core = (d*D*D)**-0.5 * torch.randn(d, D, D, dtype=dtype)
+            self.core = nn.Parameter(core)
+        else: # initialize seqlen different non-homogeneous cores
+            core = (d*D*D)**-0.5 * torch.randn(self.seqlen, d, D, D, dtype=dtype)
+            self.core = nn.Parameter(core)
+        self.left_boundary = nn.Parameter(torch.randn(D, dtype=dtype))
+        self.right_boundary = nn.Parameter(torch.randn(D, dtype=dtype))
 
-    def ournorm(self, mat):
-        return torch.max(torch.sum(abs(mat), dim=-1))
+    def mat_norm(self, mat):
+        """Our norm for matrices: infinity norm"""
+        # equivalent to torch.linalg.norm(vec, ord=float('inf')).real
+        return torch.max(torch.sum(abs(mat), dim=1))
+        
+    def vec_norm(self, vec):
+        """Our norm for vectors: infinity norm"""
+        # equivalent to torch.linalg.norm(vec, ord=float('inf')).real
+        return vec.abs().max()
 
     def _log_contract_at(self, x):
         """Contract network at particular values in the physical dimension,

@@ -12,6 +12,10 @@ class PosMPS(TTrain):
     def __init__(self, dataset, d, D, homogeneous=True, verbose=False):
         super().__init__(dataset, d, D, torch.float, homogeneous, verbose=verbose)
         self.name = "Positive MPS"
+        if homogeneous:
+            self.name += ", Homogeneous"
+        else:
+            self.name += ", Non-homogeneous"
 
     def _logprob(self, x):
         """Compute log probability of one configuration P(x)
@@ -134,10 +138,14 @@ class Born(TTrain):
 
     def __init__(
             self, dataset, d, D, dtype, 
-            homogeneous=True, log_trick=True, verbose=False):
+            homogeneous=True, log_stability=True, verbose=False):
         super().__init__(dataset, d, D, dtype, homogeneous, verbose=verbose)
-        self.log_trick = log_trick
-        self.name = "Born model " + repr(dtype) 
+        self.log_stability = log_stability
+        self.name = f"Born ({dtype})"
+        if homogeneous:
+            self.name += ", Homogeneous"
+        else:
+            self.name += ", Non-homogeneous"
 
     def _logprob(self, x):
         """Compute log probability of one configuration P(x)
@@ -148,7 +156,7 @@ class Born(TTrain):
         Returns:
             logprob (torch.Tensor): size []
         """
-        if self.log_trick:
+        if self.log_stability:
             unnorm_logprob = self._log_contract_at(x)
             log_normalization = self._log_contract_all()
             logprob = unnorm_logprob - log_normalization
