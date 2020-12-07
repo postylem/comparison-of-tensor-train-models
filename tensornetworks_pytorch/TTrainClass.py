@@ -22,18 +22,19 @@ class TTrain(nn.Module):
         self.seqlen = dataset.shape[1]
 
         # the following are set to nn.Parameters thus are backpropped over
-        k = 1 
+        k_core = (d*D*D)**-0.5 
+        k_vectors = (d)**-0.5
         # TODO k should be (d*D*D)**-0.5, 
         # we should use randn instead of rand, 
         # but this seems to make more NaNs for the homogeneous models.
         if homogeneous: # initialize single core to be repeated
-            core = k * torch.rand(d, D, D, dtype=dtype)
+            core = k_core * torch.randn(d, D, D, dtype=dtype)
             self.core = nn.Parameter(core)
         else: # initialize seqlen different non-homogeneous cores
-            core = k * torch.rand(self.seqlen, d, D, D, dtype=dtype)
+            core = k_core * torch.randn(self.seqlen, d, D, D, dtype=dtype)
             self.core = nn.Parameter(core)
-        self.left_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
-        self.right_boundary = nn.Parameter(torch.rand(D, dtype=dtype))
+        self.left_boundary = nn.Parameter(k_vectors*torch.randn(D, dtype=dtype))
+        self.right_boundary = nn.Parameter(k_vectors*torch.randn(D, dtype=dtype))
 
     def mat_norm(self, mat):
         """Our norm for matrices: infinity norm"""
