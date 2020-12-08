@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
+from tqdm import tqdm
+from torch.utils.data import Dataset, DataLoader
 
 class TTrain(nn.Module):
     """Abstract class for Tensor Train models.  Use instantiating class.
@@ -18,6 +19,7 @@ class TTrain(nn.Module):
         self.d = d
         self.verbose = verbose
         self.homogeneous = homogeneous
+        self.dataset = dataset
         self.n_datapoints = dataset.shape[0]
         self.seqlen = dataset.shape[1]
 
@@ -234,18 +236,60 @@ class TTrain(nn.Module):
     def forward(self, x):
         return self._logprob(x)
 
-    def train(self, data):
-        optimizer = optim.SGD(self.parameters(), lr=0.1)
-
-        for _ in range(100):
-            for x in data:
-                # clear out gradients
-                self.zero_grad()
-
-                # run forward pass.
-                loss =  - self(x)
-                loss.backward()
-                # update the parameters
-                optimizer.step()
+    def train(self, batchsize, max_epochs, plot=False, tqdm=tqdm, optimizer=torch.optim.Adadelta, **optim_kwargs):
+        dataset = self.dataset
+        trainloader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
+        op = optimizer(self.parameters(), **optim_kwargs)
+        early_stopping_threshold = 1e-6 # min difference in epoch loss 
+        loss_values = [] # store by-epoch avg loss values
+        print(f'╭───────────────────────────\n│Training {self.name},')
+        print(f'│         batchsize:{batchsize}, {op.__module__}, {optim_kwargs}.')
+        av_batch_loss_running = -1e4
+        with tqdm(range(max_epochs), unit="epoch", leave=True) as tepochs:
+            for epoch in tepochs:
+                batch_loss_list = []
+                with tqdm(trainloader, unit="batch", leave=False, desc=f"epoch {epoch}") as tepoch:
+                    for batch in tepoch:
+                        for pindex, p in enumerate(self.parameters()):
+                            if torch.isnan(p).any():
+                                pnames = list(self.state_dict().keys())
+                                print("│ loss values:", *(f"{x:.3f}" for x in loss_values))
+                                print(f"└────Stopped before epoch {epoch}. NaN in weights {pnames[pindex]}!")
+                                if plot:
+                                    plt.plot(loss_values)
+                                    plt.show()
+                                return loss_values
+                        self.zero_grad()
+                        neglogprob = 0
+                        for x in batch:
+                            out = self(x)
+                            neglogprob -= out
+                        loss = neglogprob / len(batch)
+                        loss.backward()
+                        # for pindex, p in enumerate(self.parameters()):
+                        #     if torch.isnan(p.grad).any():
+                        #         pnames = list(self.state_dict().keys())
+                        #         print("│ loss values:", *(f"{x:.3f}" for x in loss_values))
+                        #         print(f"└────Stopped. NaN value in gradient for {pnames[pindex]}!")
+                        #         if plot:
+                        #             plt.plot(loss_values)
+                        #             plt.show()
+                        #         return loss_values
+                        op.step()
+                        tepoch.set_postfix(loss=loss.item())
+                        batch_loss_list.append(loss.item())
+                    av_batch_loss = torch.Tensor(batch_loss_list).mean().item()
+                    loss_values.append(av_batch_loss)
+                    tepochs.set_postfix(av_batch_loss=av_batch_loss)
+                    if abs(av_batch_loss_running - av_batch_loss) < early_stopping_threshold:
+                        print(f"├────Early stopping after epoch {epoch}/{max_epochs}.")
+                        break
+                    av_batch_loss_running = av_batch_loss
+        print("│ loss values:", *(f"{x:.3f}" for x in loss_values))
+        if plot:
+            plt.plot(loss_values)
+            plt.show()
+        print('│ Finished training.\n╰───────────────────────────\n')
+        return loss_values
 
         print('Finished Training')
