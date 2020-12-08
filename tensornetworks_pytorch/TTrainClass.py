@@ -21,26 +21,50 @@ class TTrain(nn.Module):
         self.n_datapoints = dataset.shape[0]
         self.seqlen = dataset.shape[1]
 
+        # choose weight initialization scheme
+        w_init = torch.ones  # constant at 1
+        # w_init = self.noisy_ones  # constant at 1
+        # w_init = self.randomsign_ones  # 1 * +/-(/+j/-j)
+
         # the following are set to nn.Parameters thus are backpropped over
         k_core = (d*D*D)**-0.5 
         k_vectors = (d)**-0.5
-        # TODO k should be (d*D*D)**-0.5, 
-        # we should use randn instead of rand, 
-        # but this seems to make more NaNs for the homogeneous models.
         if homogeneous: # initialize single core to be repeated
-            core = k_core * torch.ones(d, D, D, dtype=dtype)
+            core = k_core * w_init((d, D, D), dtype=dtype)
             #core = torch.randn(d, D, D, dtype=dtype)
             self.core = nn.Parameter(core)
         else: # initialize seqlen different non-homogeneous cores
-            core = k_core * torch.ones(self.seqlen, d, D, D, dtype=dtype)
+            core = k_core * w_init((self.seqlen, d, D, D), dtype=dtype)
             #core = torch.randn(self.seqlen, d, D, D, dtype=dtype)
             self.core = nn.Parameter(core)
-        left_boundary = k_vectors*torch.ones(D, dtype=dtype)
+        left_boundary = k_vectors * w_init(D, dtype=dtype)
         #left_boundary = torch.randn(D, dtype=dtype)
         self.left_boundary = nn.Parameter(left_boundary)
-        right_boundary = k_vectors*torch.ones(D, dtype=dtype)
+        right_boundary = k_vectors * w_init(D, dtype=dtype)
         #right_boundary = torch.randn(D, dtype=dtype)
         self.right_boundary = nn.Parameter(right_boundary)
+
+    @staticmethod
+    def noisy_ones(shape, dtype=torch.float):
+        """Fill from gaussian with mean 1, variance hardcoded."""
+        x = torch.ones(shape, dtype=dtype)
+        e = 0.5 * torch.randn(shape, dtype=dtype)
+        return x + e
+
+    @staticmethod
+    def randomsign_ones(shape, dtype=torch.float):
+        """Makes a vector of ones with random sign, 
+        or if dtype is torch.cfloat, randomized real or imaginary units"""
+        x = torch.zeros(shape)
+        if dtype==torch.cfloat:
+            random4=torch.randint_like(x,4)
+            r = x + 1*(random4==0) - 1*(random4==1) 
+            i = x + 1*(random4==2) - 1*(random4==3)
+            out = torch.complex(r,i)
+        else:
+            random2=torch.randint_like(x,2)
+            out = x + 1*(random2==0) - 1*(random2==1) 
+        return torch.tensor(out, dtype=dtype)
 
     def mat_norm(self, mat):
         """Our norm for matrices: infinity norm"""
