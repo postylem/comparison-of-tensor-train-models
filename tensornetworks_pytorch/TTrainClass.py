@@ -13,7 +13,7 @@ class TTrain(nn.Module):
         dtype ([tensor.dtype]): 
             tensor.float for real, or tensor.cfloat for complex
     """
-    def __init__(self, dataset, d, D, dtype, homogeneous=True, verbose=False):
+    def __init__(self, dataset, d, D, dtype, homogeneous=True, w_randomization=None, verbose=False):
         super().__init__()
         self.D = D
         self.d = d
@@ -24,9 +24,12 @@ class TTrain(nn.Module):
         self.seqlen = dataset.shape[1]
 
         # choose weight initialization scheme
-        w_init = torch.ones  # constant at 1
-        # w_init = self.noisy_ones  # constant at 1
-        # w_init = self.randomsign_ones  # 1 * +/-(/+j/-j)
+        if w_randomization == 'noisy':
+            w_init = self.noisy_ones  # constant at 1, with some noise
+        elif w_randomization== 'random_angle':
+            w_init = self.randomsign_ones  # 1 * +/-(/+j/-j)
+        else:
+            w_init = torch.ones  # constant at 1
 
         # the following are set to nn.Parameters thus are backpropped over
         k_core = (d*D*D)**-0.5 
@@ -236,21 +239,25 @@ class TTrain(nn.Module):
     def forward(self, x):
         return self._logprob(x)
 
-    def train(self, batchsize, max_epochs, plot=False, tqdm=tqdm, optimizer=torch.optim.Adadelta, **optim_kwargs):
+    def train(
+            self, batchsize, max_epochs, 
+            plot=False, tqdm=tqdm, device='cpu',
+            optimizer=torch.optim.Adadelta, **optim_kwargs):
         dataset = self.dataset
+        model = self.to(device)
         trainloader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
-        op = optimizer(self.parameters(), **optim_kwargs)
+        optimizer = optimizer(model.parameters(), **optim_kwargs)
         early_stopping_threshold = 1e-6 # min difference in epoch loss 
         loss_values = [] # store by-epoch avg loss values
-        print(f'╭───────────────────────────\n│Training {self.name},')
-        print(f'│         batchsize:{batchsize}, {op.__module__}, {optim_kwargs}.')
+        print(f'╭───────────────────────────\n│Training {self.name}, on {device}')
+        print(f'│         batchsize:{batchsize}, {optimizer.__module__}, {optim_kwargs}.')
         av_batch_loss_running = -1e4
         with tqdm(range(max_epochs), unit="epoch", leave=True) as tepochs:
             for epoch in tepochs:
                 batch_loss_list = []
                 with tqdm(trainloader, unit="batch", leave=False, desc=f"epoch {epoch}") as tepoch:
                     for batch in tepoch:
-                        for pindex, p in enumerate(self.parameters()):
+                        for pindex, p in enumerate(model.parameters()):
                             if torch.isnan(p).any():
                                 pnames = list(self.state_dict().keys())
                                 print("│ loss values:", *(f"{x:.3f}" for x in loss_values))
@@ -259,14 +266,14 @@ class TTrain(nn.Module):
                                     plt.plot(loss_values)
                                     plt.show()
                                 return loss_values
-                        self.zero_grad()
+                        model.zero_grad()
                         neglogprob = 0
                         for x in batch:
-                            out = self(x)
+                            out = model(x.to(device))
                             neglogprob -= out
                         loss = neglogprob / len(batch)
                         loss.backward()
-                        # for pindex, p in enumerate(self.parameters()):
+                        # for pindex, p in enumerate(model.parameters()):
                         #     if torch.isnan(p.grad).any():
                         #         pnames = list(self.state_dict().keys())
                         #         print("│ loss values:", *(f"{x:.3f}" for x in loss_values))
@@ -275,7 +282,7 @@ class TTrain(nn.Module):
                         #             plt.plot(loss_values)
                         #             plt.show()
                         #         return loss_values
-                        op.step()
+                        optimizer.step()
                         tepoch.set_postfix(loss=loss.item())
                         batch_loss_list.append(loss.item())
                     av_batch_loss = torch.Tensor(batch_loss_list).mean().item()

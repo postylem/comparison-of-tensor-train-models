@@ -9,8 +9,12 @@ class PosMPS(TTrain):
     Uses absolute value of real parameters.
     """
 
-    def __init__(self, dataset, d, D, homogeneous=True, verbose=False):
-        super().__init__(dataset, d, D, torch.float, homogeneous, verbose=verbose)
+    def __init__(
+            self, dataset, d, D, 
+            homogeneous=True, w_randomization=None, verbose=False):
+        super().__init__(
+            dataset, d, D, dtype=torch.float, 
+            homogeneous=homogeneous, w_randomization=w_randomization, verbose=verbose)
         self.name = "Positive MPS"
         if homogeneous:
             self.name += ", Homogeneous"
@@ -136,11 +140,12 @@ class Born(TTrain):
         dtype ([tensor.dtype]): 
             tensor.float for real, or tensor.cfloat for complex
     """
-
     def __init__(
             self, dataset, d, D, dtype, 
-            homogeneous=True, log_stability=True, verbose=False):
-        super().__init__(dataset, d, D, dtype, homogeneous, verbose=verbose)
+            homogeneous=True, w_randomization=None, log_stability=True, verbose=False):
+        super().__init__(
+            dataset, d, D, dtype, 
+            homogeneous, w_randomization=w_randomization, verbose=verbose)
         self.log_stability = log_stability
         self.name = f"Born ({dtype})"
         if homogeneous:
