@@ -81,6 +81,68 @@ class TTrain(nn.Module):
         # equivalent to torch.linalg.norm(vec, ord=float('inf')).real
         return vec.abs().max()
 
+    def _contract_at(self, x):
+        """Contract network at particular values in the physical dimension,
+        for computing probability of x.
+        """
+        if self.homogeneous:
+            # repeat the core seqlen times
+            w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        else:
+            w = self.core
+        # contract the network, from the left boundary through to the last core
+        contracting_tensor = self.left_boundary
+        for i in range(self.seqlen):
+            contracting_tensor = torch.einsum(
+                'i, ij -> j',
+                contracting_tensor,
+                w[i, x[i], :, :])
+        # contract the final bond dimension
+        output = torch.einsum(
+            'i, i ->', contracting_tensor, self.right_boundary)
+        # if self.verbose:
+        #     print("contract_at", output)
+        return output
+
+    def _contract_all(self):
+        """Contract network with a copy of itself across physical index,
+        for computing norm.
+        """
+
+        if self.homogeneous:
+            # repeat the core seqlen times
+            w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+        else:
+            w = self.core
+
+        # first, left boundary contraction
+        # (note: if real-valued conj will have no effect)
+        contracting_tensor = torch.einsum(
+            'ij, ik -> jk',
+            torch.einsum(
+                'j, ijk -> ik', self.left_boundary, w[0, :, :, :]),
+            torch.einsum(
+                'j, ijk -> ik', self.left_boundary, w[0, :, :, :].conj())
+        )
+        # contract the network
+        for i in range(1, self.seqlen):
+            contracting_tensor = torch.einsum(
+                'ij, ijkl -> kl',
+                contracting_tensor,
+                torch.einsum(
+                    'ijk, ilm -> jlkm',
+                    w[i, :, :, :],
+                    w[i, :, :, :].conj()))
+        # contract the final bond dimension with right boundary vector
+        output = torch.einsum(
+            'ij, i, j ->',
+            contracting_tensor,
+            self.right_boundary,
+            self.right_boundary.conj())
+        # if self.verbose:
+        #     print("contract_all", output)
+        return output
+
     def _log_contract_at(self, x):
         """Contract network at particular values in the physical dimension,
         for computing probability of x.
@@ -112,29 +174,6 @@ class TTrain(nn.Module):
         # if self.verbose:
         #     print("contract_at", output)
         return logprob
-        
-    def _contract_at(self, x):
-        """Contract network at particular values in the physical dimension,
-        for computing probability of x.
-        """
-        if self.homogeneous:
-            # repeat the core seqlen times
-            w = self.core[None].repeat(self.seqlen, 1, 1, 1)
-        else:
-            w = self.core
-        # contract the network, from the left boundary through to the last core
-        contracting_tensor = self.left_boundary
-        for i in range(self.seqlen):
-            contracting_tensor = torch.einsum(
-                'i, ij -> j',
-                contracting_tensor,
-                w[i, x[i], :, :])
-        # contract the final bond dimension
-        output = torch.einsum(
-            'i, i ->', contracting_tensor, self.right_boundary)
-        # if self.verbose:
-        #     print("contract_at", output)
-        return output
 
     def _log_contract_all(self):
         """Contract network with a copy of itself across physical index,
@@ -184,52 +223,64 @@ class TTrain(nn.Module):
         # if self.verbose:
         #     print("contract_all", output)
         return lognorm
-        
 
-    def _contract_all(self):
-        """Contract network with a copy of itself across physical index,
-        for computing norm.
+    def _log_contract_at_batch(self, X):
+        """Contract network at particular values in the physical dimension,
+        for computing probability of x, for x in X.
+        input:
+            X: tensor batch of observations, size [batch_size, seq_len]
+        returns:
+            logprobs: tensor of log probs, size [batch_size]
+        Uses log norm stability trick.
+        RETURNS LOG PROBS.
         """
-
+        batch_size = X.shape[0]
         if self.homogeneous:
-            # repeat the core seqlen times
-            w = self.core[None].repeat(self.seqlen, 1, 1, 1)
+            # repeat the core seqlen times, and repeat that batch_size times
+            w = self.core[(None,)*2].repeat(batch_size, self.seqlen, 1, 1, 1)
         else:
-            w = self.core
-
-        # first, left boundary contraction
-        # (note: if real-valued conj will have no effect)
-        contracting_tensor = torch.einsum(
-            'ij, ik -> jk',
-            torch.einsum(
-                'j, ijk -> ik', self.left_boundary, w[0, :, :, :]),
-            torch.einsum(
-                'j, ijk -> ik', self.left_boundary, w[0, :, :, :].conj())
-        )
-        # contract the network
-        for i in range(1, self.seqlen):
-            contracting_tensor = torch.einsum(
-                'ij, ijkl -> kl',
-                contracting_tensor,
-                torch.einsum(
-                    'ijk, ilm -> jlkm',
-                    w[i, :, :, :],
-                    w[i, :, :, :].conj()))
-        # contract the final bond dimension with right boundary vector
+            # repeat nonhomogenous core batch_size times
+            w = self.core[None].repeat(batch_size, 1, 1, 1)
+        # contract the network, from the left boundary through to the last core
+        left_boundaries = self.left_boundary[None].repeat(batch_size, 1)
+        right_boundaries = self.right_boundary[None].repeat(batch_size, 1)
+        Zs = torch.ones(batch_size, dtype=torch.float) # normalizers one per batch
+        for b in range(batch_size):
+            Zs[b] = self.vec_norm(left_boundaries[b])
+        contractor_unit = left_boundaries / Zs
+        accumulated_lognorms = Zs.log()
+        for i in range(self.seqlen):
+            contractor_temp = torch.einsum(
+                'bi, bij -> bj',
+                contractor_unit,
+                w[:, i, x[i], :, :])
+            for b in range(batch_size):
+                Zs[b] = self.vec_norm(contractor_temp[b])
+            contractor_unit = contractor_temp / Zs
+            accumulated_lognorms += Zs.log()
+        # contract the final bond dimension
         output = torch.einsum(
-            'ij, i, j ->',
-            contracting_tensor,
-            self.right_boundary,
-            self.right_boundary.conj())
-        # if self.verbose:
-        #     print("contract_all", output)
-        return output
+            'bi, bi -> b', contractor_unit, right_boundaries)
+        probs = (accumulated_lognorms.exp() * output).abs().square()
+        logprobs = probs.log()
+        return logprobs
 
     def _logprob(self, x):
         """Compute log probability of one configuration P(x)
 
         Args:
-            x (np.ndarray): shape (seqlen,)
+            x : shape (seqlen,)
+
+        Returns:
+            logprob (torch.Tensor): size [1]
+        """
+        pass
+
+    def _logprob_batch(self, X):
+        """Compute log P(x) for all x in a batch X
+
+        Args:
+            X : shape (batch_size, seqlen)
 
         Returns:
             logprob (torch.Tensor): size [1]
@@ -238,6 +289,10 @@ class TTrain(nn.Module):
 
     def forward(self, x):
         return self._logprob(x)
+
+    def forward_batch(self, batch):
+        # TODO: av_logprob = self._logprob_batch(batch)
+        return av_logprob
 
     def train(
             self, batchsize, max_epochs, 
@@ -298,5 +353,3 @@ class TTrain(nn.Module):
             plt.show()
         print('│ Finished training.\n╰───────────────────────────\n')
         return loss_values
-
-        print('Finished Training')
