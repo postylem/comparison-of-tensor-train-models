@@ -26,10 +26,12 @@ class TTrain(nn.Module):
         # choose weight initialization scheme
         if w_randomization == 'noisy':
             w_init = self.noisy_ones  # constant at 1, with some noise
-        elif w_randomization== 'random_angle':
+        elif w_randomization == 'random_angle':
             w_init = self.randomsign_ones  # 1 * +/-(/+j/-j)
+        elif w_randomization == 'gaussian_zeros':
+            w_init = torch.randn  #  gaussian centred at 0
         else:
-            w_init = torch.ones  # constant at 1
+            w_init = torch.ones   # constant at 1
 
         # the following are set to nn.Parameters thus are backpropped over
         k_core = (d*D*D)**-0.5 
@@ -297,7 +299,7 @@ class TTrain(nn.Module):
     def train(
             self, batchsize, max_epochs, 
             plot=False, tqdm=tqdm, device='cpu',
-            optimizer=torch.optim.Adadelta, **optim_kwargs):
+            optimizer=torch.optim.Adadelta, clamp_at=None, **optim_kwargs):
         dataset = self.dataset
         model = self.to(device)
         trainloader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
@@ -325,6 +327,8 @@ class TTrain(nn.Module):
                         neglogprob = 0
                         for x in batch:
                             out = model(x.to(device))
+                            if clamp_at:
+                                out = torch.clamp(out, min=-clamp_at, max=clamp_at)
                             neglogprob -= out
                         loss = neglogprob / len(batch)
                         loss.backward()
