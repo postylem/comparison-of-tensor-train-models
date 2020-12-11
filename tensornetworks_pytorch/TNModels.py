@@ -262,3 +262,22 @@ class Born(TTrain):
             normalization = self._contract_all().abs()
             logprob = unnorm_prob.log() - normalization.log()
         return logprob
+
+    def _logprob_batch(self, X):
+        """Compute log P(x) for all x in a batch X
+
+        Args:
+            X : shape (batch_size, seqlen)
+
+        Returns:
+            logprobs (torch.Tensor): size [batchsize]
+        """
+        if self.log_stability:
+            unnorm_logprobs = self._log_contract_at_batch(X) # tensor size [batchsize]
+            # print(unnorm_logprobs)
+            # print([self._log_contract_at(x).item() for x in X])
+            log_normalization = self._log_contract_all() # scalar
+            logprobs = unnorm_logprobs - log_normalization
+        else:
+            raise NotImplementedError('batched=True not implemented for log_stability=False')
+        return logprobs

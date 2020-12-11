@@ -242,23 +242,23 @@ class TTrain(nn.Module):
             w = self.core[(None,)*2].repeat(batch_size, self.seqlen, 1, 1, 1)
         else:
             # repeat nonhomogenous core batch_size times
-            w = self.core[None].repeat(batch_size, 1, 1, 1)
+            w = self.core[None].repeat(batch_size, 1, 1, 1, 1)
         # contract the network, from the left boundary through to the last core
         left_boundaries = self.left_boundary[None].repeat(batch_size, 1)
         right_boundaries = self.right_boundary[None].repeat(batch_size, 1)
-        Zs = torch.ones(batch_size, dtype=torch.float) # normalizers one per batch
-        for b in range(batch_size):
-            Zs[b] = self.vec_norm(left_boundaries[b])
-        contractor_unit = left_boundaries / Zs
+        Zs, _ = left_boundaries.abs().max(axis=1) # normalizers one per batch (!note infinity norm is hardcoded here)
+        contractor_unit = left_boundaries / Zs[:,None]
         accumulated_lognorms = Zs.log()
+        # make one hot encoding of data, and select along physical dimension of weights
+        Xh = torch.nn.functional.one_hot(X, num_classes=self.d)
+        w_selected = (w * Xh[:, :, :, None, None]).sum(2) # w_selected shape is [batchsize, seqlen, D, D]
         for i in range(self.seqlen):
             contractor_temp = torch.einsum(
                 'bi, bij -> bj',
                 contractor_unit,
-                w[:, i, x[i], :, :])
-            for b in range(batch_size):
-                Zs[b] = self.vec_norm(contractor_temp[b])
-            contractor_unit = contractor_temp / Zs
+                w_selected[:, i, :, :])
+            Zs, _ = contractor_temp.abs().max(axis=1)
+            contractor_unit = contractor_temp / Zs[:,None]
             accumulated_lognorms += Zs.log()
         # contract the final bond dimension
         output = torch.einsum(
@@ -285,7 +285,7 @@ class TTrain(nn.Module):
             X : shape (batch_size, seqlen)
 
         Returns:
-            logprob (torch.Tensor): size [1]
+            logprobs (torch.Tensor): size [batchsize]
         """
         pass
 
@@ -293,12 +293,12 @@ class TTrain(nn.Module):
         return self._logprob(x)
 
     def forward_batch(self, batch):
-        # TODO: av_logprob = self._logprob_batch(batch)
-        return av_logprob
+        logprobs = self._logprob_batch(batch)
+        return logprobs
 
     def train(
             self, batchsize, max_epochs, 
-            plot=False, tqdm=tqdm, device='cpu',
+            plot=False, tqdm=tqdm, device='cpu', batched=False,
             optimizer=torch.optim.Adadelta, clamp_at=None, **optim_kwargs):
         dataset = self.dataset
         model = self.to(device)
@@ -312,45 +312,50 @@ class TTrain(nn.Module):
         with tqdm(range(max_epochs), unit="epoch", leave=True) as tepochs:
             for epoch in tepochs:
                 batch_loss_list = []
-                with tqdm(trainloader, unit="batch", leave=False, desc=f"epoch {epoch}") as tepoch:
-                    for batch in tepoch:
-                        for pindex, p in enumerate(model.parameters()):
-                            if torch.isnan(p).any():
-                                pnames = list(self.state_dict().keys())
-                                print("│ loss values:", *(f"{x:.3f}" for x in loss_values))
-                                print(f"└────Stopped before epoch {epoch}. NaN in weights {pnames[pindex]}!")
-                                if plot:
-                                    plt.plot(loss_values)
-                                    plt.show()
-                                return loss_values
-                        model.zero_grad()
+                # with tqdm(trainloader, unit="batch", leave=False, desc=f"epoch {epoch}") as tepoch:
+                #     for batch in tepoch:
+                for batch in trainloader:
+                    for pindex, p in enumerate(model.parameters()):
+                        if torch.isnan(p).any():
+                            pnames = list(self.state_dict().keys())
+                            print("│ loss values:", *(f"{x:.3f}" for x in loss_values))
+                            print(f"└────Stopped before epoch {epoch}. NaN in weights {pnames[pindex]}!")
+                            if plot:
+                                plt.plot(loss_values)
+                                plt.show()
+                            return loss_values
+                    model.zero_grad()
+                    if batched:
+                        logprobs = model.forward_batch(batch.to(device))
+                        neglogprob = -logprobs.sum(0)
+                    else:
                         neglogprob = 0
                         for x in batch:
-                            out = model(x.to(device))
-                            if clamp_at:
-                                out = torch.clamp(out, min=-clamp_at, max=clamp_at)
-                            neglogprob -= out
-                        loss = neglogprob / len(batch)
-                        loss.backward()
-                        # for pindex, p in enumerate(model.parameters()):
-                        #     if torch.isnan(p.grad).any():
-                        #         pnames = list(self.state_dict().keys())
-                        #         print("│ loss values:", *(f"{x:.3f}" for x in loss_values))
-                        #         print(f"└────Stopped. NaN value in gradient for {pnames[pindex]}!")
-                        #         if plot:
-                        #             plt.plot(loss_values)
-                        #             plt.show()
-                        #         return loss_values
-                        optimizer.step()
-                        tepoch.set_postfix(loss=loss.item())
-                        batch_loss_list.append(loss.item())
-                    av_batch_loss = torch.Tensor(batch_loss_list).mean().item()
-                    loss_values.append(av_batch_loss)
-                    tepochs.set_postfix(av_batch_loss=av_batch_loss)
-                    if abs(av_batch_loss_running - av_batch_loss) < early_stopping_threshold:
-                        print(f"├────Early stopping after epoch {epoch}/{max_epochs}.")
-                        break
-                    av_batch_loss_running = av_batch_loss
+                            logprob = model(x.to(device))
+                            neglogprob -= logprob
+                    loss = neglogprob / len(batch)
+                    if clamp_at:
+                        loss = torch.clamp(loss, min=-clamp_at, max=clamp_at)
+                    loss.backward()
+                    # for pindex, p in enumerate(model.parameters()):
+                    #     if torch.isnan(p.grad).any():
+                    #         pnames = list(self.state_dict().keys())
+                    #         print("│ loss values:", *(f"{x:.3f}" for x in loss_values))
+                    #         print(f"└────Stopped. NaN value in gradient for {pnames[pindex]}!")
+                    #         if plot:
+                    #             plt.plot(loss_values)
+                    #             plt.show()
+                    #         return loss_values
+                    optimizer.step()
+                    # tepoch.set_postfix(loss=loss.item())
+                    batch_loss_list.append(loss.item())
+                av_batch_loss = torch.Tensor(batch_loss_list).mean().item()
+                loss_values.append(av_batch_loss)
+                tepochs.set_postfix(av_batch_loss=av_batch_loss)
+                if abs(av_batch_loss_running - av_batch_loss) < early_stopping_threshold:
+                    print(f"├────Early stopping after epoch {epoch}/{max_epochs}.")
+                    break
+                av_batch_loss_running = av_batch_loss
         print("│ loss values:", *(f"{x:.3f}" for x in loss_values))
         if plot:
             plt.plot(loss_values)
