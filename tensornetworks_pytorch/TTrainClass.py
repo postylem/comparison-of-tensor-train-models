@@ -335,6 +335,7 @@ class TTrain(nn.Module):
     def train(
             self, batchsize, max_epochs, early_stopping_threshold=0,
             plot=False, tqdm=tqdm, device='cpu', batched=False,
+            verbose=False,
             optimizer=torch.optim.Adadelta, clamp_at=None, **optim_kwargs):
         dataset = self.dataset
         model = self.to(device)
@@ -350,7 +351,7 @@ class TTrain(nn.Module):
                 batch_loss_list = []
                 # with tqdm(trainloader, unit="batch", leave=False, desc=f"epoch {epoch}") as tepoch:
                 #     for batch in tepoch:
-                for batch in trainloader:
+                for batch_idx, batch in enumerate(trainloader):
                     for pindex, p in enumerate(model.parameters()):
                         if torch.isnan(p).any():
                             pnames = list(self.state_dict().keys())
@@ -363,15 +364,15 @@ class TTrain(nn.Module):
                     model.zero_grad()
                     if batched:
                         logprobs = model.forward_batch(batch.to(device))
-                        if (logprobs > 0).any():
-                            print(f"├─── Batch {batch}: Warning! logprobs contains positive values...")
+                        if verbose and (logprobs > 0).any():
+                            print(f"├─── Epoch {epoch}, batch {batch_idx}: Warning! logprobs contains positive values (max={logprobs.max()})...")
                         neglogprob = -logprobs.sum(0)
                     else:
                         neglogprob = 0
-                        for batch_idx, x in enumerate(batch):
+                        for x_idx, x in enumerate(batch):
                             logprob = model(x.to(device))
                             if (logprob > 0):
-                                print(f"├─── Batch {batch}[{batch_idx}]: Warning! positive logprob...")
+                                print(f"├─── Batch {batch_idx}[{x_idx}]: Warning! positive logprob...")
                             neglogprob -= logprob
                     loss = neglogprob / len(batch)
                     if clamp_at:
