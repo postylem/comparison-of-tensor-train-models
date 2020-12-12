@@ -328,7 +328,7 @@ class TTrain(nn.Module):
     def add_gradient_hook(self, clipping_threshold):
         for param_index, p in enumerate(self.parameters()):
             pnames = list(self.state_dict().keys())
-            p.register_hook(lambda grad: self.clip_grad(grad, 1000, pnames[param_index], verbose=True))
+            p.register_hook(lambda grad: self.clip_grad(grad, clipping_threshold, pnames[param_index], verbose=True))
             if torch.isnan(p).any():
                 print(f"{pnames[param_index]} contains a NaN value!")
 
@@ -363,11 +363,15 @@ class TTrain(nn.Module):
                     model.zero_grad()
                     if batched:
                         logprobs = model.forward_batch(batch.to(device))
+                        if (logprobs > 0).any():
+                            print(f"├─── Batch {batch}: Warning! logprobs contains positive values...")
                         neglogprob = -logprobs.sum(0)
                     else:
                         neglogprob = 0
-                        for x in batch:
+                        for batch_idx, x in enumerate(batch):
                             logprob = model(x.to(device))
+                            if (logprob > 0):
+                                print(f"├─── Batch {batch}[{batch_idx}]: Warning! positive logprob...")
                             neglogprob -= logprob
                     loss = neglogprob / len(batch)
                     if clamp_at:

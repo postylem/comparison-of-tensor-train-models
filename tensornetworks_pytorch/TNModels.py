@@ -205,7 +205,7 @@ class PosMPS(TTrain):
             'bi, bi -> b', contractor_unit, right_boundaries2)
         logprobs = accumulated_lognorms + output.log()  # shape [batchsize]
         if (output < 0).any():
-            print("output of contract_at < 0")
+            print("Warning! output of contract_at contains negative values...")
         return logprobs
 
     def _log_contract_all(self):
@@ -246,40 +246,6 @@ class PosMPS(TTrain):
         # if self.verbose:
         #     print("contract_all", output)
         return logprob
-
-    # def _contract_at_temp(self, x):
-    #     """Contract network at particular values in the physical dimension,
-    #     for computing probability of x.
-    #     """
-    #     # repeat the core seqlen times
-    #     w2 = self.core[None].repeat(self.seqlen, 1, 1, 1).square()
-    #     left_boundary2 = self.left_boundary.square()
-    #     right_boundary2 = self.right_boundary.square()
-    #     contracting_tensor = left_boundary2
-    #     for i in range(self.seqlen):
-    #         contracting_tensor = torch.einsum(
-    #             'i, ij -> j',
-    #             contracting_tensor,
-    #             w2[i, x[i], :, :]) 
-    #     output = torch.dot(contracting_tensor, right_boundary2)
-    #     return output
-
-    # def _contract_all_temp(self):
-    #     """Contract network with a copy of itself across physical index,
-    #     for computing norm.
-    #     """
-    #     w2 = self.core[None].repeat(self.seqlen, 1, 1, 1).square()
-    #     left_boundary2 = self.left_boundary.square()
-    #     right_boundary2 = self.right_boundary.square()
-    #     contracting_tensor = torch.einsum('j, ijk -> ik', left_boundary2, w2[0,:,:,:])
-    #     contracting_tensor = contracting_tensor.sum(axis=0)
-    #     for i in range(1, self.seqlen):
-    #         contracting_tensor = torch.einsum(
-    #             'i, ij -> j', 
-    #             contracting_tensor, 
-    #             torch.sum(w2[i,:,:,:], axis=0))  
-    #     output = torch.dot(contracting_tensor, right_boundary2)
-    #     return output
 
 
 class Born(TTrain):
