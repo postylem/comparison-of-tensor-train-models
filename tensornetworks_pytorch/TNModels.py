@@ -11,10 +11,14 @@ class PosMPS(TTrain):
 
     def __init__(
             self, dataset, d, D, 
-            homogeneous=True, w_randomization=None, log_stability=True, verbose=False):
+            homogeneous=True, w_randomization=None, gradient_clipping_threshold=None,
+            log_stability=True, 
+            verbose=False):
         super().__init__(
             dataset, d, D, dtype=torch.float, 
-            homogeneous=homogeneous, w_randomization=w_randomization, verbose=verbose)
+            homogeneous=homogeneous, w_randomization=w_randomization,
+            gradient_clipping_threshold=gradient_clipping_threshold,
+            verbose=verbose)
         self.log_stability = log_stability
         self.name = "Positive MPS"
         if homogeneous:
@@ -23,7 +27,6 @@ class PosMPS(TTrain):
             self.name += ", Non-homogeneous"
         if log_stability:
             self.name += " + log_stability"
-
 
     def _logprob(self, x):
         """Compute log probability of one configuration P(x)
@@ -45,6 +48,24 @@ class PosMPS(TTrain):
             logprob = unnorm_prob.log() - normalization.log()
         return logprob
 
+    def _logprob_batch(self, X):
+        """Compute log P(x) for all x in a batch X
+
+        Args:
+            X : shape (batch_size, seqlen)
+
+        Returns:
+            logprobs (torch.Tensor): size [batchsize]
+        """
+        if self.log_stability:
+            unnorm_logprobs = self._log_contract_at_batch(X) # tensor size [batchsize]
+            # print(unnorm_logprobs)
+            # print([self._log_contract_at(x).item() for x in X])
+            log_normalization = self._log_contract_all() # scalar
+            logprobs = unnorm_logprobs - log_normalization
+        else:
+            raise NotImplementedError('batched=True not implemented for log_stability=False')
+        return logprobs
 
     def _contract_at(self, x):
         """Contract network at particular values in the physical dimension,
@@ -111,7 +132,6 @@ class PosMPS(TTrain):
         """Contract network at particular values in the physical dimension,
         for computing probability of x.
         """
-        # repeat the core seqlen times
         if self.homogeneous:
             # repeat the core seqlen times
             w = self.core[None].repeat(self.seqlen, 1, 1, 1)
@@ -124,7 +144,6 @@ class PosMPS(TTrain):
         contractor_unit = left_boundary2 / Z
         accumulated_lognorm = Z.log()
         # contract the network, from the left boundary through to the last core
-        #contracting_tensor = left_boundary2
         for i in range(self.seqlen):
             contractor_temp = torch.einsum(
                 'i, ij -> j',
@@ -145,6 +164,49 @@ class PosMPS(TTrain):
         if output < 0:
             print("output of contract_at < 0")
         return logprob
+
+    def _log_contract_at_batch(self, X):
+        """Contract network at particular values in the physical dimension,
+        for computing probability of x, for x in X.
+        input:
+            X: tensor batch of observations, size [batch_size, seq_len]
+        returns:
+            logprobs: tensor of log probs, size [batch_size]
+        Uses log norm stability trick.
+        """
+        batch_size = X.shape[0]
+        if self.homogeneous:
+            # repeat the core seqlen times, and repeat that batch_size times
+            w = self.core[(None,)*2].repeat(batch_size, self.seqlen, 1, 1, 1)
+        else:
+            # repeat nonhomogenous core batch_size times
+            w = self.core[None].repeat(batch_size, 1, 1, 1, 1)
+        w2 = w.square() # w shape is [batch_size, seqlen, d, D, D]
+        left_boundaries2 = self.left_boundary[None].repeat(batch_size, 1).square()
+        right_boundaries2 = self.right_boundary[None].repeat(batch_size, 1).square()
+        # normalizers, one per batch 
+        Zs, _ = left_boundaries2.max(axis=1) # do vec_norm on each row (!note infinity norm is hardcoded here)
+        contractor_unit = left_boundaries2 / Zs[:,None]
+        accumulated_lognorms = Zs.log()
+        # make one hot encoding of data, and select along physical dimension of weights
+        Xh = torch.nn.functional.one_hot(X, num_classes=self.d)
+        w2_selected = (w2 * Xh[:, :, :, None, None]).sum(2) # w2_selected shape is [batchsize, seqlen, D, D]
+        # contract the network, from the left boundary through to the last core
+        for i in range(self.seqlen):
+            contractor_temp = torch.einsum(
+                'bi, bij -> bj',
+                contractor_unit,
+                w2_selected[:, i, :, :])
+            Zs, _ = contractor_temp.abs().max(axis=1)
+            contractor_unit = contractor_temp / Zs[:,None]
+            accumulated_lognorms += Zs.log()
+        # contract the final bond dimension
+        output = torch.einsum(
+            'bi, bi -> b', contractor_unit, right_boundaries2)
+        logprobs = accumulated_lognorms + output.log()  # shape [batchsize]
+        if (output < 0).any():
+            print("output of contract_at < 0")
+        return logprobs
 
     def _log_contract_all(self):
         """Contract network with a copy of itself across physical index,
@@ -229,10 +291,13 @@ class Born(TTrain):
     """
     def __init__(
             self, dataset, d, D, dtype, 
-            homogeneous=True, w_randomization=None, log_stability=True, verbose=False):
+            homogeneous=True, w_randomization=None, gradient_clipping_threshold=None,
+            log_stability=True, verbose=False):
         super().__init__(
             dataset, d, D, dtype, 
-            homogeneous, w_randomization=w_randomization, verbose=verbose)
+            homogeneous=homogeneous, w_randomization=w_randomization, 
+            gradient_clipping_threshold=gradient_clipping_threshold,
+            verbose=verbose)
         self.log_stability = log_stability
         self.name = f"Born ({dtype})"
         if homogeneous:

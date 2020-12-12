@@ -13,7 +13,10 @@ class TTrain(nn.Module):
         dtype ([tensor.dtype]): 
             tensor.float for real, or tensor.cfloat for complex
     """
-    def __init__(self, dataset, d, D, dtype, homogeneous=True, w_randomization=None, verbose=False):
+    def __init__(
+            self, dataset, d, D, dtype, 
+            homogeneous=True, w_randomization=None, gradient_clipping_threshold=None,
+            verbose=False):
         super().__init__()
         self.D = D
         self.d = d
@@ -50,6 +53,10 @@ class TTrain(nn.Module):
         right_boundary = k_vectors * w_init(D, dtype=dtype)
         #right_boundary = torch.randn(D, dtype=dtype)
         self.right_boundary = nn.Parameter(right_boundary)
+
+        if gradient_clipping_threshold:
+            # clip gradients at gradient_clipping_threshold if not None
+            self.add_gradient_hook(clipping_threshold=gradient_clipping_threshold)
 
     @staticmethod
     def noisy_ones(shape, dtype=torch.float):
@@ -234,7 +241,6 @@ class TTrain(nn.Module):
         returns:
             logprobs: tensor of log probs, size [batch_size]
         Uses log norm stability trick.
-        RETURNS LOG PROBS.
         """
         batch_size = X.shape[0]
         if self.homogeneous:
@@ -246,12 +252,14 @@ class TTrain(nn.Module):
         # contract the network, from the left boundary through to the last core
         left_boundaries = self.left_boundary[None].repeat(batch_size, 1)
         right_boundaries = self.right_boundary[None].repeat(batch_size, 1)
-        Zs, _ = left_boundaries.abs().max(axis=1) # normalizers one per batch (!note infinity norm is hardcoded here)
+        # normalizers, one per batch 
+        Zs, _ = left_boundaries.abs().max(axis=1) # do vec_norm on each row (!note infinity norm is hardcoded here)
         contractor_unit = left_boundaries / Zs[:,None]
         accumulated_lognorms = Zs.log()
         # make one hot encoding of data, and select along physical dimension of weights
         Xh = torch.nn.functional.one_hot(X, num_classes=self.d)
         w_selected = (w * Xh[:, :, :, None, None]).sum(2) # w_selected shape is [batchsize, seqlen, D, D]
+        # contract the network, from the left boundary through to the last core
         for i in range(self.seqlen):
             contractor_temp = torch.einsum(
                 'bi, bij -> bj',
@@ -296,17 +304,45 @@ class TTrain(nn.Module):
         logprobs = self._logprob_batch(batch)
         return logprobs
 
+    @staticmethod
+    def clip_grad(grad, clip_val, param_name, verbose=False):
+        """Clip the gradients, to be used as a hook during training."""
+        if torch.isnan(grad).any():
+            print(f"├─NaN value in gradient of {param_name}, {grad.size()}")
+        if grad.dtype==torch.cfloat:
+            for ext, v in [("min", grad.real.min()),("max", grad.real.max())]:
+                if verbose and abs(v) > clip_val:
+                    print(f"│(clipping {param_name} real {ext} {v:.2} to size {clip_val})")
+            for ext, v in [("min", grad.imag.min()),("max", grad.imag.max())]:
+                if verbose and abs(v) > clip_val:
+                    print(f"│(clipping {param_name} imag {ext} {1.j*v:.2} to size {clip_val})")
+            clipped_grad = torch.complex(grad.real.clamp(-clip_val, clip_val),
+                                        grad.imag.clamp(-clip_val, clip_val))
+        else:
+            for ext, v in [("min", grad.min()),("max", grad.max())]:
+                if verbose and abs(v) > clip_val:
+                    print(f"│(clipping {param_name} {ext} {v:.2} to size {clip_val})")
+            clipped_grad = torch.clamp(grad, -clip_val, clip_val)
+        return clipped_grad
+
+    def add_gradient_hook(self, clipping_threshold):
+        for param_index, p in enumerate(self.parameters()):
+            pnames = list(self.state_dict().keys())
+            p.register_hook(lambda grad: self.clip_grad(grad, 1000, pnames[param_index], verbose=True))
+            if torch.isnan(p).any():
+                print(f"{pnames[param_index]} contains a NaN value!")
+
     def train(
-            self, batchsize, max_epochs, 
+            self, batchsize, max_epochs, early_stopping_threshold=0,
             plot=False, tqdm=tqdm, device='cpu', batched=False,
             optimizer=torch.optim.Adadelta, clamp_at=None, **optim_kwargs):
         dataset = self.dataset
         model = self.to(device)
         trainloader = DataLoader(dataset, batch_size=batchsize, shuffle=True)
         optimizer = optimizer(model.parameters(), **optim_kwargs)
-        early_stopping_threshold = 1e-6 # min difference in epoch loss 
+        early_stopping_threshold = early_stopping_threshold  # 0 for no early stopping
         loss_values = [] # store by-epoch avg loss values
-        print(f'╭───────────────────────────\n│Training {self.name}, on {device}')
+        print(f'╭───────────────────────────batched={batched}\n│Training {self.name}, on {device}')
         print(f'│         batchsize:{batchsize}, {optimizer.__module__}, {optim_kwargs}.')
         av_batch_loss_running = -1e4
         with tqdm(range(max_epochs), unit="epoch", leave=True) as tepochs:
@@ -350,8 +386,10 @@ class TTrain(nn.Module):
                     # tepoch.set_postfix(loss=loss.item())
                     batch_loss_list.append(loss.item())
                 av_batch_loss = torch.Tensor(batch_loss_list).mean().item()
+                batch_loss_variance = torch.Tensor(batch_loss_list).var().item()
                 loss_values.append(av_batch_loss)
-                tepochs.set_postfix(av_batch_loss=av_batch_loss)
+                tepochs.set_postfix(
+                    dict(av_batch_loss=av_batch_loss, batch_loss_variance=batch_loss_variance))
                 if abs(av_batch_loss_running - av_batch_loss) < early_stopping_threshold:
                     print(f"├────Early stopping after epoch {epoch}/{max_epochs}.")
                     break
