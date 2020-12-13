@@ -213,7 +213,7 @@ class HMM():
 	    self.pi = pi_
 
 	    A_ = np.sum(psi, axis=0) 
-	    A_ /= np.sum(A, axis=1, keepdims=True)
+	    A_ /= np.sum(A_, axis=1, keepdims=True)
 	    self.A = A_
 
 	    mu_ = np.empty((self.d, self.K, X.shape[1]))
