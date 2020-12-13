@@ -21,12 +21,15 @@ class PosMPS(TTrain):
             verbose=verbose)
         self.log_stability = log_stability
         self.name = "Positive MPS"
+        self.short_name = "posMPS"
         if homogeneous:
             self.name += ", Homogeneous"
+            self.short_name += " hom"
         else:
             self.name += ", Non-homogeneous"
-        if log_stability:
-            self.name += " + log_stability"
+            self.short_name += " non-hom"
+        if not log_stability:
+            self.name += " without log_stability"
 
     def _logprob(self, x):
         """Compute log probability of one configuration P(x)
@@ -266,12 +269,19 @@ class Born(TTrain):
             verbose=verbose)
         self.log_stability = log_stability
         self.name = f"Born ({dtype})"
+        if dtype==torch.cfloat:
+            prefix = 'cx' 
+        elif dtype==torch.float:
+            prefix = 're'
+        self.short_name = prefix+"Born"
         if homogeneous:
             self.name += ", Homogeneous"
+            self.short_name += " hom"
         else:
             self.name += ", Non-homogeneous"
-        if log_stability:
-            self.name += " + log_stability"
+            self.short_name += " non-hom"
+        if not log_stability:
+            self.name += " without log_stability"
 
     def _logprob(self, x):
         """Compute log probability of one configuration P(x)
