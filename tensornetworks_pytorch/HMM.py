@@ -216,7 +216,7 @@ class HMM():
 	    A_ /= np.sum(A, axis=1, keepdims=True)
 	    self.A = A_
 
-	    mu_ = np.empty((d, self.K, X.shape[1]))
+	    mu_ = np.empty((self.d, self.K, X.shape[1]))
 	    for d_ in range(self.d):
 	      for n in range(X.shape[1]):
 	        x_ = X[:, n]
