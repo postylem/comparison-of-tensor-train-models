@@ -270,9 +270,9 @@ class Born(TTrain):
         self.log_stability = log_stability
         self.name = f"Born ({dtype})"
         if dtype==torch.cfloat:
-            prefix = 'cx' 
+            prefix = 'c' 
         elif dtype==torch.float:
-            prefix = 're'
+            prefix = 'r'
         self.short_name = prefix+"Born"
         if homogeneous:
             self.name += ", Homogeneous"
