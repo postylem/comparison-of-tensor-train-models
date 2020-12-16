@@ -205,7 +205,7 @@ class TTrain(nn.Module):
             torch.einsum(
                 'j, ijk -> ik', contractor_unit, w[0, :, :, :]),
             torch.einsum(
-                'j, ijk -> ik', contractor_unit, w[0, :, :, :].conj())
+                'j, ijk -> ik', contractor_unit.conj(), w[0, :, :, :].conj())
         )
         Z = self.mat_norm(contractor_temp)
         contractor_unit = contractor_temp / Z
