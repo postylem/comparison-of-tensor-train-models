@@ -20,12 +20,12 @@ class TTrain(nn.Module):
         super().__init__()
         self.D = D
         self.d = d
+        self.dtype = dtype
         self.verbose = verbose
         self.homogeneous = homogeneous
         self.dataset = dataset
         self.n_datapoints = dataset.shape[0]
         self.seqlen = dataset.shape[1]
-
         # choose weight initialization scheme
         if w_randomization == 'noisy':
             w_init = self.noisy_ones  # constant at 1, with some noise
@@ -33,12 +33,16 @@ class TTrain(nn.Module):
             w_init = self.randomsign_ones  # 1 * +/-(/+j/-j)
         elif w_randomization == 'gaussian_zeros':
             w_init = torch.randn  #  gaussian centred at 0
+        elif w_randomization == 'zeros':
+            w_init = torch.zeros   # constant at 1
+        elif w_randomization == 'ones':
+            w_init = torch.ones   # constant at 1
         else:
             w_init = torch.ones   # constant at 1
 
         # the following are set to nn.Parameters thus are backpropped over
         k_core = (d*D*D)**-0.5 
-        k_vectors = (d)**-0.5
+        k_vectors = (D)**-0.5
         if homogeneous: # initialize single core to be repeated
             core = k_core * w_init((d, D, D), dtype=dtype)
             #core = torch.randn(d, D, D, dtype=dtype)
@@ -184,6 +188,15 @@ class TTrain(nn.Module):
         #     print("contract_at", output)
         return logprob
 
+    def clamp_c(self, tensor, clip_min, clip_max):
+        '''clamp complex or real'''
+        if tensor.dtype==torch.cfloat:
+            return torch.complex(
+                tensor.real.clamp(clip_min, clip_val),
+                tensor.imag.clamp(clip_min, clip_max))
+        else:
+            return torch.clamp(tensor, clip_min, clip_max)
+
     def _log_contract_all(self):
         """Contract network with a copy of itself across physical index,
         for computing norm.
@@ -200,6 +213,9 @@ class TTrain(nn.Module):
         Z = self.vec_norm(self.left_boundary)
         contractor_unit = self.left_boundary / Z
         accumulated_lognorm = Z.log()
+        if not accumulated_lognorm.isfinite():
+            print("nonfinite lognorm in contract all! clamping")
+            accumulated_lognorm = self.clamp_c(accumulated_lognorm, -1e-20, None)
         contractor_temp = torch.einsum(
             'ij, ik -> jk',
             torch.einsum(
@@ -222,6 +238,9 @@ class TTrain(nn.Module):
             Z = self.mat_norm(contractor_temp)
             contractor_unit = contractor_temp / Z
             accumulated_lognorm += Z.log()
+            if not accumulated_lognorm.isfinite():
+                print("nonfinite lognorm in contract all! clamping")
+                accumulated_lognorm = self.clamp_c(accumulated_lognorm, -1e-20, None)
         # contract the final bond dimension with right boundary vector
         output = torch.einsum(
             'ij, i, j ->',
@@ -256,6 +275,9 @@ class TTrain(nn.Module):
         Zs, _ = left_boundaries.abs().max(axis=1) # do vec_norm on each row (!note infinity norm is hardcoded here)
         contractor_unit = left_boundaries / Zs[:,None]
         accumulated_lognorms = Zs.log()
+        if not accumulated_lognorms.isfinite().all():
+            print("nonfinite lognorm in contract_at! clamping")
+            accumulated_lognorms = self.clamp_c(accumulated_lognorms, -1e-20, None)
         # make one hot encoding of data, and select along physical dimension of weights
         Xh = torch.nn.functional.one_hot(X, num_classes=self.d)
         w_selected = (w * Xh[:, :, :, None, None]).sum(2) # w_selected shape is [batchsize, seqlen, D, D]
@@ -268,6 +290,9 @@ class TTrain(nn.Module):
             Zs, _ = contractor_temp.abs().max(axis=1)
             contractor_unit = contractor_temp / Zs[:,None]
             accumulated_lognorms += Zs.log()
+            if not accumulated_lognorms.isfinite().all():
+                print("nonfinite lognorm in contract_at! clamping")
+                accumulated_lognorms = self.clamp_c(accumulated_lognorms, -1e-20, None)
         # contract the final bond dimension
         output = torch.einsum(
             'bi, bi -> b', contractor_unit, right_boundaries)
