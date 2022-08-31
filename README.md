@@ -1,6 +1,8 @@
 # Comparing MPS and HMM
 
-Js Hoov Palucc - IFT6269 project group 22
+Jacob Louis Hoover and Jonathan Palucci. This code was part of a project for Université de Montréal's Probabilistic Graphical Models course (IFT6269) with Simon Lacoste-Julien, 2020.  It is a heavily modified version of [glivan/tensor_networks_for_probabilistic_modeling](https://github.com/glivan/tensor_networks_for_probabilistic_modeling).
+
+## Info
 
 `/tensornetworks_pytorch` contains a bottom-up Pytorch reimplementation of tensor train models from Glasser et al, to make use of autodifferentiation.
 
@@ -17,9 +19,9 @@ conda install pytorch torchvision torchaudio -c pytorch-nightly
 
 
 
+----
 
-Original Readme:
---------
+Original readme from [glivan/tensor_networks_for_probabilistic_modeling](https://github.com/glivan/tensor_networks_for_probabilistic_modeling):
 
 
 ## Expressive power of tensor-network factorizations for probabilistic modeling
