@@ -1,6 +1,6 @@
 # Comparing MPS and HMM
 
-By [Jacob Louis Hoover](jahoo.github.io) and Jonathan Palucci. 
+By [Jacob Louis Hoover](jahoo.github.io) and [Jonathan Palucci](https://jpalucci.github.io/). 
 
 This code was part of a project for Université de Montréal's Probabilistic Graphical Models course (IFT6269) with Simon Lacoste-Julien, 2020.  It is a heavily modified version of [glivan/tensor_networks_for_probabilistic_modeling](https://github.com/glivan/tensor_networks_for_probabilistic_modeling).
 
